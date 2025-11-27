@@ -120,9 +120,9 @@ services:
 
   log-processor:
     build:
-      context: ./log-processor
+      context: ./log-message-processor
       dockerfile: Dockerfile
-    container_name: log-processor
+    container_name: log-message-processor
     restart: unless-stopped
     environment:
       - REDIS_HOST=redis
