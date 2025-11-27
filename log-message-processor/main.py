@@ -21,7 +21,7 @@ if __name__ == '__main__':
         requests.post(
             zipkin_url,
             data=encoded_span,
-            headers={'Content-Type': 'application/x-thrift'},
+            headers={'Content-Type': 'application/json'},
         )
 
     pubsub = redis.Redis(host=redis_host, port=redis_port, db=0).pubsub()
