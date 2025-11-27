@@ -1,0 +1,81 @@
+---
+- name: Check if application directory exists
+  stat:
+    path: "{{ app_dir }}"
+  register: app_dir_stat
+
+- name: Clone application repository
+  git:
+    repo: "{{ app_repo }}"
+    dest: "{{ app_dir }}"
+    version: main
+    force: yes
+  when: not app_dir_stat.stat.exists
+  register: git_clone
+
+- name: Pull latest changes from repository
+  git:
+    repo: "{{ app_repo }}"
+    dest: "{{ app_dir }}"
+    version: main
+    force: yes
+  when: app_dir_stat.stat.exists
+  register: git_pull
+
+- name: Create .env file
+  template:
+    src: env.j2
+    dest: "{{ app_dir }}/.env"
+    mode: '0644'
+  register: env_file
+
+- name: Create Traefik certificates directory
+  file:
+    path: "{{ app_dir }}/traefik-certificates"
+    state: directory
+    mode: '0755'
+
+- name: Create acme.json file
+  file:
+    path: "{{ app_dir }}/traefik-certificates/acme.json"
+    state: touch
+    mode: '0600'
+
+- name: Stop existing containers
+  command: docker-compose down
+  args:
+    chdir: "{{ app_dir }}"
+  ignore_errors: yes
+  when: git_pull.changed or env_file.changed
+
+- name: Build and start Docker containers
+  command: docker-compose up -d --build
+  args:
+    chdir: "{{ app_dir }}"
+  when: git_clone.changed or git_pull.changed or env_file.changed
+
+- name: Start Docker containers (idempotent)
+  command: docker-compose up -d
+  args:
+    chdir: "{{ app_dir }}"
+  when: not (git_clone.changed or git_pull.changed or env_file.changed)
+
+- name: Wait for services to be healthy
+  wait_for:
+    host: localhost
+    port: "{{ item }}"
+    delay: 10
+    timeout: 60
+  loop:
+    - 80
+    - 443
+  ignore_errors: yes
+
+- name: Display deployment info
+  debug:
+    msg:
+      - "Application deployed successfully!"
+      - "Frontend URL: https://{{ domain_name }}"
+      - "Auth API: https://{{ domain_name }}/api/auth"
+      - "Todos API: https://{{ domain_name }}/api/todos"
+      - "Users API: https://{{ domain_name }}/api/users"

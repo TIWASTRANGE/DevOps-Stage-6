@@ -1,0 +1,79 @@
+name: Application Deployment
+
+on:
+  push:
+    paths:
+      - 'frontend/**'
+      - 'auth-api/**'
+      - 'todos-api/**'
+      - 'users-api/**'
+      - 'log-processor/**'
+      - 'docker-compose.yml'
+      - '.env'
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: af-south-1
+
+      - name: Setup Terraform (to get server IP)
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.14.0'
+
+      - name: Get Server IP from Terraform
+        id: server_ip
+        working-directory: ./infra/terraform
+        run: |
+          terraform init
+          SERVER_IP=$(terraform output -raw server_public_ip)
+          echo "ip=$SERVER_IP" >> $GITHUB_OUTPUT
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ steps.server_ip.outputs.ip }} >> ~/.ssh/known_hosts
+
+      - name: Deploy with Ansible
+        run: |
+          pip install ansible
+          cd infra/ansible
+          ansible-playbook -i inventory/hosts playbook.yml \
+            -e "domain_name=${{ secrets.DOMAIN_NAME }}" \
+            -e "acme_email=${{ secrets.ACME_EMAIL }}"
+
+      - name: Send Deployment Notification
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: 'Application Deployed Successfully'
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: DevOps Bot
+          body: |
+            Application has been successfully deployed!
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Triggered by: ${{ github.actor }}
+            
+            Access your application at: https://${{ secrets.DOMAIN_NAME }}

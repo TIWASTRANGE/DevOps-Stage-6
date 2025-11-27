@@ -1,0 +1,8 @@
+aws_region           = "af-south-1"
+environment          = "production"
+instance_type        = "t3.micro"
+domain_name          = "tiwadevops.systeme.io"
+acme_email           = "ntiwa112@gmail.com"
+ssh_public_key_path  = "/home/tiwa/.ssh/id_rsa.pub"
+ssh_private_key_path = "/home/tiwa/.ssh/id_rsa"
+ssh_user             = "ubuntu"

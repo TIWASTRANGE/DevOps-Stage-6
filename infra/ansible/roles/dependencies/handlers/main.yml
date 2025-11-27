@@ -1,0 +1,12 @@
+---
+# Handlers for dependencies role
+
+- name: restart docker
+  systemd:
+    name: docker
+    state: restarted
+    daemon_reload: yes
+
+- name: reset connection
+  meta: reset_connection
+  # This resets SSH connection so group membership changes take effect
