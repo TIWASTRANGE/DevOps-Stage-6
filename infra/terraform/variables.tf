@@ -25,7 +25,7 @@ variable "instance_type" {
 variable "ssh_public_key_path" {
   description = "Path to SSH public key"
   type        = string
-  default     = "/home/tiwa/.ssh/id_rsa.pub"
+  default     = "infra/terraform/keys/id_rsa.pub"
 }
 
 variable "ssh_private_key_path" {

@@ -80,7 +80,7 @@ resource "aws_security_group" "micro_todo_app_sg" {
 # EC2 Key Pair
 resource "aws_key_pair" "micro_todo_app_key" {
   key_name   = "micro-todo-app-key"
-  public_key = file(var.ssh_public_key_path)
+  public_key = file("${path.module}/keys/id_rsa.pub")
 
   tags = {
     Name        = "micro-todo-app-key"
