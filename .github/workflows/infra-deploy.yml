@@ -17,9 +17,9 @@ jobs:
     name: Terraform Plan & Drift Detection
     runs-on: ubuntu-latest
     outputs:
-      has_changes: ${{ steps.plan.outputs.has_changes }}
-      plan_exitcode: ${{ steps.plan.outputs.exitcode }}
-    
+      has_changes: ${{ steps.set.outputs.has_changes }}
+      plan_exitcode: ${{ steps.set.outputs.exitcode }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -40,29 +40,33 @@ jobs:
         working-directory: ./infra/terraform
         run: terraform init
 
-      - name: Terraform Plan
+      - name: Run Terraform Plan
         id: plan
         working-directory: ./infra/terraform
         run: |
-         terraform plan -detailed-exitcode -out=tfplan
-         exitcode=$?
-         echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
-         if [ "$exitcode" -eq 2 ]; then
-         echo "has_changes=true" >> $GITHUB_OUTPUT
-         else
-          echo "has_changes=false" >> $GITHUB_OUTPUT
-         fi
+          terraform plan -detailed-exitcode -out=tfplan
+          echo "exitcode=$?" >> $GITHUB_ENV
         continue-on-error: true
 
+      - name: Set Outputs
+        id: set
+        run: |
+          if [ "${{ env.exitcode }}" == "2" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+          echo "exitcode=${{ env.exitcode }}" >> $GITHUB_OUTPUT
+
       - name: Upload Terraform Plan
-        if: steps.plan.outputs.has_changes == 'true'
+        if: steps.set.outputs.has_changes == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: tfplan
           path: ./infra/terraform/tfplan
 
       - name: Send Drift Detection Email
-        if: steps.plan.outputs.has_changes == 'true'
+        if: steps.set.outputs.has_changes == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -74,14 +78,14 @@ jobs:
           from: TIWA HNG13 Stage6 DevOps Bot
           body: |
             Infrastructure drift has been detected!
-            
+
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
             Triggered by: ${{ github.actor }}
-            
+
             Changes detected in your infrastructure. Please review the plan and approve the workflow to apply changes.
-            
+
             Review the workflow run here:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
@@ -92,7 +96,7 @@ jobs:
     if: needs.terraform-plan.outputs.has_changes == 'true'
     environment:
       name: production
-    
+
     steps:
       - name: Wait for approval
         run: echo "Waiting for manual approval to apply infrastructure changes..."
@@ -102,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [terraform-plan, wait-for-approval]
     if: needs.terraform-plan.outputs.has_changes == 'true'
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -145,7 +149,7 @@ jobs:
           from: TIWA HNG13 Stage6 DevOps Bot
           body: |
             Infrastructure changes have been successfully applied!
-            
+
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
@@ -155,7 +159,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: terraform-plan
     if: needs.terraform-plan.outputs.has_changes == 'false'
-    
+
     steps:
       - name: No changes
         run: echo "No infrastructure changes detected. Skipping apply."
