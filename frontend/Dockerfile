@@ -10,8 +10,8 @@ RUN npm run build
 
 FROM nginx:alpine
 
-RUN apk add --no-cache python3 make g++ \
- && ln -sf python3 /usr/bin/python
+# RUN apk add --no-cache python3 make g++ \
+#  && ln -sf python3 /usr/bin/python
 
 
 COPY --from=builder /app/dist /usr/share/nginx/html
