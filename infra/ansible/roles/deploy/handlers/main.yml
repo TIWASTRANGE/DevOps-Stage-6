@@ -2,12 +2,12 @@
 # Handlers for deploy role
 
 - name: restart docker containers
-  community.docker.docker_compose:
+  community.docker.docker_compose_v2:
     project_src: "{{ app_dir }}"
     restarted: yes
 
 - name: rebuild docker containers
-  community.docker.docker_compose:
+  community.docker.docker_compose_v2:
     project_src: "{{ app_dir }}"
     build: yes
     restarted: yes
