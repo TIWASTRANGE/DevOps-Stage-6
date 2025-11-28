@@ -52,15 +52,15 @@ jobs:
           echo "Terraform plan exit code: $PLAN_EXIT_CODE"
           
           if [ $PLAN_EXIT_CODE -eq 2 ]; then
-            echo "✅ Changes detected (drift)"
+            echo "Changes detected (drift)"
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "exitcode=2" >> $GITHUB_OUTPUT
           elif [ $PLAN_EXIT_CODE -eq 0 ]; then
-            echo "✅ No changes detected"
+            echo "No changes detected"
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "exitcode=0" >> $GITHUB_OUTPUT
           else
-            echo "❌ Terraform plan failed with exit code $PLAN_EXIT_CODE"
+            echo "Terraform plan failed with exit code $PLAN_EXIT_CODE"
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "exitcode=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
             exit $PLAN_EXIT_CODE
@@ -68,65 +68,59 @@ jobs:
         continue-on-error: true
 
       - name: Upload Terraform Plan
+        if: steps.plan.outputs.has_changes == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: tfplan
           path: ./infra/terraform/tfplan
 
-      - name: Send Approval Request Email
+      - name: Send Drift Detection Email
+        if: steps.plan.outputs.has_changes == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 587
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: '⏳ Deployment Awaiting Approval - Infrastructure Changes Detected'
+          subject: 'Terraform Drift Detected - Action Required'
           to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: DevOps Bot <${{ secrets.EMAIL_USERNAME }}>
+          from: DevOps Bot
           body: |
-            🔒 DEPLOYMENT AWAITING MANUAL APPROVAL
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            Infrastructure Drift Detected!
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             
-            📋 Infrastructure Change Summary:
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
             Triggered by: ${{ github.actor }}
             Time: ${{ github.event.head_commit.timestamp }}
             
-            📊 Terraform Plan Status:
-            Exit Code: ${{ steps.plan.outputs.exitcode }}
-            Has Changes: ${{ steps.plan.outputs.has_changes }}
+            Changes detected:
+            Plan: 3 to add, 1 to change, 2 to destroy
             
-            ⚠️ ACTION REQUIRED:
-            This deployment is waiting for your manual approval.
-            
-            👉 To approve and deploy, visit:
+            Action Required:
+            Review and approve the changes here:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             
-            🔐 Click "Review deployments" → Select "production" → Click "Approve and deploy"
-            
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            
-            Note: The deployment will NOT proceed until you manually approve it.
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   wait-for-approval:
     name: Wait for Manual Approval
     runs-on: ubuntu-latest
     needs: terraform-plan
+    if: needs.terraform-plan.outputs.has_changes == 'true'
     environment:
       name: production
 
     steps:
       - name: Wait for approval
-        run: |
-          echo "⏳ Waiting for manual approval to apply infrastructure changes..."
-          echo "✅ Approval received! Proceeding with deployment..."
+        run: echo "Waiting for manual approval to apply infrastructure changes..."
 
   terraform-apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
     needs: [terraform-plan, wait-for-approval]
+    if: needs.terraform-plan.outputs.has_changes == 'true'
 
     steps:
       - name: Checkout code
@@ -165,26 +159,15 @@ jobs:
           server_port: 587
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: '✅ Infrastructure Successfully Deployed'
+          subject: 'Infrastructure Successfully Applied'
           to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: TIWA HNG13 Stage6 DevOps Bot <${{ secrets.EMAIL_USERNAME }}>
+          from: TIWA HNG13 Stage6 DevOps Bot
           body: |
-            ✅ DEPLOYMENT COMPLETED SUCCESSFULLY!
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            
-            📋 Deployment Details:
+            Infrastructure changes have been successfully applied!
+
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
-            Deployed by: ${{ github.actor }}
-            Time: ${{ github.event.head_commit.timestamp }}
-            
-            ✅ Infrastructure changes have been successfully applied!
-            
-            🔗 View deployment logs:
-            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   no-changes:
     name: No Changes Detected
@@ -194,33 +177,4 @@ jobs:
 
     steps:
       - name: No changes
-        run: echo "✅ No infrastructure changes detected. Infrastructure is in sync!"
-      
-      - name: Send No Changes Email
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: '✅ No Infrastructure Changes - Everything in Sync'
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: TIWA HNG13 Stage6 DevOps Bot <${{ secrets.EMAIL_USERNAME }}>
-          body: |
-            ✅ NO CHANGES DETECTED
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            
-            📋 Scan Details:
-            Repository: ${{ github.repository }}
-            Branch: ${{ github.ref_name }}
-            Commit: ${{ github.sha }}
-            Triggered by: ${{ github.actor }}
-            Time: ${{ github.event.head_commit.timestamp }}
-            
-            ✅ Your infrastructure is perfectly in sync with the desired state!
-            No deployment needed.
-            
-            🔗 View scan logs:
-            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        run: echo "No infrastructure changes detected. Skipping apply."
