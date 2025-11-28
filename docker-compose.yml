@@ -100,6 +100,7 @@ services:
       - SERVER_PORT=8081
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - JAVA_OPTS=--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.users-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/users`)"
@@ -129,6 +130,7 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - REDIS_CHANNEL=logs
     networks:
       - app-network
     depends_on:
