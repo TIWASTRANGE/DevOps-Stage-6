@@ -82,6 +82,10 @@ resource "aws_key_pair" "micro_todo_app_key" {
   key_name   = "micro-todo-app-key"
   public_key = file("${path.module}/keys/id_rsa.pub")
 
+  lifecycle {
+    create_before_destroy = true
+  }
+
   tags = {
     Name        = "micro-todo-app-key"
     Environment = var.environment
