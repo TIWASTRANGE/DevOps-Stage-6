@@ -44,12 +44,14 @@ jobs:
         id: plan
         working-directory: ./infra/terraform
         run: |
-          terraform plan -detailed-exitcode -out=tfplan || echo "exitcode=$?" >> $GITHUB_OUTPUT
-          if [ $? -eq 2 ]; then
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-          fi
+         terraform plan -detailed-exitcode -out=tfplan
+         exitcode=$?
+         echo "exitcode=$exitcode" >> $GITHUB_OUTPUT
+         if [ "$exitcode" -eq 2 ]; then
+         echo "has_changes=true" >> $GITHUB_OUTPUT
+         else
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+         fi
         continue-on-error: true
 
       - name: Upload Terraform Plan
