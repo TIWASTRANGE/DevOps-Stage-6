@@ -1,5 +1,5 @@
 # users-api/Dockerfile
-FROM maven:3.9-eclipse-temurin-17 AS builder
+FROM maven:3.9-eclipse-temurin-8 AS builder
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ RUN mvn dependency:go-offline
 COPY src ./src
 RUN mvn clean package -DskipTests
 
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:8-jre-alpine
 
 WORKDIR /app
 
