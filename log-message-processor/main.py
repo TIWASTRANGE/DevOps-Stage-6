@@ -7,6 +7,8 @@ from py_zipkin.zipkin import zipkin_span, ZipkinAttrs, generate_random_64bit_str
 import time
 import random
 
+#log message
+
 def log_message(message):
     time_delay = random.randrange(0, 2000)
     time.sleep(time_delay / 1000)
