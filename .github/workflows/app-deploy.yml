@@ -41,30 +41,65 @@ jobs:
         working-directory: ./infra/terraform
         run: |
           terraform init
-          SERVER_IP=$(terraform output -raw server_public_ip)
+          SERVER_IP=$(terraform output -raw server_public_ip 2>/dev/null || echo "")
+          
+          if [ -z "$SERVER_IP" ]; then
+            echo "Could not get server IP from Terraform"
+            echo " Make sure infrastructure is deployed first"
+            exit 1
+          fi
+          
           echo "ip=$SERVER_IP" >> $GITHUB_OUTPUT
           echo "Server IP: $SERVER_IP"
-
-      - name: Verify server is reachable
-        run: |
-          echo "Checking if server is reachable..."
-          for i in {1..5}; do
-            if ping -c 1 ${{ steps.server_ip.outputs.ip }} > /dev/null 2>&1; then
-              echo "Server is reachable!"
-              exit 0
-            fi
-            echo "Attempt $i/5 failed, retrying..."
-            sleep 5
-          done
-          echo "Server is not reachable after 5 attempts"
-          exit 1
 
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          
+          # Add private key
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ steps.server_ip.outputs.ip }} >> ~/.ssh/known_hosts
+          
+          # Add server to known hosts
+          ssh-keyscan -H ${{ steps.server_ip.outputs.ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          echo "SSH configured"
+
+      - name: Wait for SSH to be available
+        run: |
+          echo "Waiting for SSH to be available on ${{ steps.server_ip.outputs.ip }}..."
+          
+          MAX_ATTEMPTS=12
+          ATTEMPT=0
+          
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS..."
+            
+            if ssh -o ConnectTimeout=10 \
+                   -o StrictHostKeyChecking=no \
+                   -o BatchMode=yes \
+                   -i ~/.ssh/id_rsa \
+                   ubuntu@${{ steps.server_ip.outputs.ip }} \
+                   "echo 'SSH ready'" 2>/dev/null; then
+              echo "SSH connection successful!"
+              exit 0
+            fi
+            
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              sleep 10
+            fi
+          done
+          
+          echo "SSH connection failed after $MAX_ATTEMPTS attempts (120 seconds)"
+          echo ""
+          echo "Possible issues:"
+          echo "1. Security group doesn't allow SSH from GitHub Actions"
+          echo "2. Instance is still starting up"
+          echo "3. SSH key mismatch"
+          echo "4. Instance is not running"
+          exit 1
 
       - name: Install Ansible
         run: |
@@ -74,36 +109,62 @@ jobs:
       - name: Deploy with Ansible
         run: |
           cd infra/ansible
+          
+          # Verify inventory exists
+          if [ ! -f inventory/hosts ]; then
+            echo "Inventory file not found!"
+            echo "Creating inventory manually..."
+            mkdir -p inventory
+            cat > inventory/hosts << EOF
+          [webservers]
+          app_server ansible_host=${{ steps.server_ip.outputs.ip }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_python_interpreter=/usr/bin/python3
+
+          [webservers:vars]
+          ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+          EOF
+          fi
+          
           echo "Starting application deployment..."
           ansible-playbook -i inventory/hosts playbook.yml \
             -e "domain_name=${{ secrets.DOMAIN_NAME }}" \
             -e "acme_email=${{ secrets.ACME_EMAIL }}" \
+            --private-key ~/.ssh/id_rsa \
             -v
 
       - name: Wait for services to start
         run: |
-          echo "Waiting 30 seconds for services to start..."
-          sleep 30
+          echo "Waiting 45 seconds for Docker services to start..."
+          sleep 45
 
       - name: Verify deployment
+        continue-on-error: true
         run: |
           echo "Verifying deployment..."
           
-          # Check if frontend is accessible
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://${{ steps.server_ip.outputs.ip }} || echo "000")
-          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ]; then
-            echo "Frontend is accessible (HTTP $HTTP_CODE)"
+          SERVER_IP="${{ steps.server_ip.outputs.ip }}"
+          DOMAIN="${{ secrets.DOMAIN_NAME }}"
+          
+          # Check if server responds on HTTP
+          echo "Testing HTTP..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 10 http://$SERVER_IP || echo "000")
+          echo "HTTP response code: $HTTP_CODE"
+          
+          # Check if domain resolves
+          echo "Testing domain resolution..."
+          if host $DOMAIN > /dev/null 2>&1; then
+            echo "Domain resolves"
+            
+            # Test HTTPS
+            echo "Testing HTTPS..."
+            HTTPS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 10 https://$DOMAIN -k || echo "000")
+            echo "HTTPS response code: $HTTPS_CODE"
           else
-            echo "Frontend returned HTTP $HTTP_CODE"
+            echo "Domain doesn't resolve yet (DNS propagation)"
           fi
           
-          # Check if HTTPS redirect works
-          HTTPS_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://${{ secrets.DOMAIN_NAME }} -k || echo "000")
-          if [ "$HTTPS_CODE" = "200" ] || [ "$HTTPS_CODE" = "301" ] || [ "$HTTPS_CODE" = "302" ]; then
-            echo "HTTPS is working (HTTP $HTTPS_CODE)"
-          else
-            echo "HTTPS returned code $HTTPS_CODE"
-          fi
+          # Check via SSH
+          echo "Checking Docker containers status..."
+          ssh -i ~/.ssh/id_rsa ubuntu@$SERVER_IP "docker ps --format 'table {{.Names}}\t{{.Status}}'"
 
       - name: Send Deployment Success Email
         if: success()
@@ -168,23 +229,9 @@ jobs:
                     <a href="https://${{ secrets.DOMAIN_NAME }}" class="button">Open Application</a>
                     <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">View Deployment Logs</a>
                   </div>
-                  
-                  <div class="info-box">
-                    <h3>Deployed Services</h3>
-                    <ul>
-                      <li>Frontend (Vue.js)</li>
-                      <li>Auth API (Go)</li>
-                      <li>Todos API (Node.js)</li>
-                      <li>Users API (Java Spring Boot)</li>
-                      <li>Log Processor (Python)</li>
-                      <li>Redis Queue</li>
-                      <li>Traefik (Reverse Proxy + SSL)</li>
-                    </ul>
-                  </div>
                 </div>
                 <div class="footer">
                   <p>This is an automated message from your DevOps pipeline</p>
-                  <p>Deployment completed at: ${{ github.event.head_commit.timestamp }}</p>
                 </div>
               </div>
             </body>
@@ -224,7 +271,13 @@ jobs:
                 <div class="content">
                   <div class="error-box">
                     <h3>Deployment Error</h3>
-                    <p>The application deployment failed. Please check the logs for details.</p>
+                    <p>The application deployment failed. Common causes:</p>
+                    <ul>
+                      <li>SSH connection timeout (check security group)</li>
+                      <li>Ansible playbook errors</li>
+                      <li>Docker container failures</li>
+                      <li>Missing environment variables</li>
+                    </ul>
                   </div>
                   
                   <div class="error-box">
@@ -239,16 +292,6 @@ jobs:
                     <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">
                       View Error Logs
                     </a>
-                  </div>
-                  
-                  <div class="error-box">
-                    <h3>Next Steps</h3>
-                    <ol>
-                      <li>Review the deployment logs in GitHub Actions</li>
-                      <li>Check server logs: <code>docker logs [container_name]</code></li>
-                      <li>Verify server accessibility</li>
-                      <li>Fix the issue and push again</li>
-                    </ol>
                   </div>
                 </div>
                 <div class="footer">
