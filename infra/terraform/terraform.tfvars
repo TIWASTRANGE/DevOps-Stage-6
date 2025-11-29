@@ -1,7 +1,7 @@
 aws_region           = "af-south-1"
 environment          = "production"
 instance_type        = "t3.micro"
-domain_name          = "tiwadevops.systeme.io"
+domain_name          = "tiwa-microdeploy.strangled.net"
 acme_email           = "ntiwa112@gmail.com"
 ssh_public_key_path  = "~/.ssh/id_rsa.pub"
 ssh_private_key_path = "~/.ssh/id_rsa"
