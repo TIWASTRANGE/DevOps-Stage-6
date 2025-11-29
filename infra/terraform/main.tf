@@ -50,14 +50,6 @@ resource "aws_security_group" "micro_todo_app_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-   ingress {
-    description = "Traefik Dashboard"
-    from_port   = 8080
-    to_port     = 8080
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   ingress {
     description = "HTTPS"
     from_port   = 443
@@ -165,16 +157,12 @@ resource "null_resource" "run_ansible" {
   }
 
   provisioner "local-exec" {
-    command = <<-EOT
-      echo "Running Ansible playbook..."
-      cd ${path.module}/../ansible
-      ansible-playbook -i inventory/hosts playbook.yml \
-        -e "domain_name=${var.domain_name}" \
-        -e "acme_email=${var.acme_email}"
-    EOT
-  }
+  command = <<-EOT
+    ansible-playbook -i ${path.module}/../ansible/inventory/hosts ${path.module}/../ansible/playbook.yml
+  EOT
+}
 
-  depends_on = [
-    null_resource.wait_for_instance
-  ]
+depends_on = [
+  null_resource.wait_for_instance
+]
 }
