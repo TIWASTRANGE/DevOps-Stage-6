@@ -161,7 +161,7 @@ resource "null_resource" "wait_for_instance" {
 resource "null_resource" "run_ansible" {
   triggers = {
     instance_id = aws_instance.micro_todo_app_server.id
-
+    always_run  = timestamp()
   }
 
   provisioner "local-exec" {
