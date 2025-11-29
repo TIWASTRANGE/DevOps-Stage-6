@@ -220,7 +220,6 @@ jobs:
     if: needs.terraform-plan.outputs.has_changes == 'true'
     environment:
       name: production
-      url: https://${{ secrets.DOMAIN_NAME }}
 
     steps:
       - name: Wait for approval
