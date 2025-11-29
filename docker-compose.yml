@@ -60,6 +60,8 @@ services:
     restart: unless-stopped
     environment:
       - AUTH_API_PORT=8081
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - JWT_SECRET=myfancysecret
       - USERS_API_ADDRESS=http://users-api:8083
     labels:
@@ -111,6 +113,8 @@ services:
     environment:
       - SERVER_PORT=8083
       - JWT_SECRET=myfancysecret
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.users-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/users`)"
