@@ -7,12 +7,15 @@ on:
       - 'auth-api/**'
       - 'todos-api/**'
       - 'users-api/**'
-      - 'log-processor/**'
+      - 'log-message-processor/**'
       - 'docker-compose.yml'
       - '.env'
     branches:
       - main
   workflow_dispatch:
+
+env:
+  AWS_REGION: 'af-south-1'
 
 jobs:
   deploy:
@@ -28,12 +31,13 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: af-south-1
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform (to get server IP)
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: '1.14.0'
+          terraform_version: '1.6.0'
+          terraform_wrapper: false
 
       - name: Get Server IP from Terraform
         id: server_ip
@@ -42,6 +46,7 @@ jobs:
           terraform init
           SERVER_IP=$(terraform output -raw server_public_ip)
           echo "ip=$SERVER_IP" >> $GITHUB_OUTPUT
+          echo "Server IP: $SERVER_IP"
 
       - name: Setup SSH
         run: |
@@ -49,16 +54,46 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ steps.server_ip.outputs.ip }} >> ~/.ssh/known_hosts
+          
+          # Test SSH connection
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ steps.server_ip.outputs.ip }} "echo 'SSH connection successful'"
+
+      - name: Install Ansible
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible
 
       - name: Deploy with Ansible
+        working-directory: ./infra/ansible
+        env:
+          DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
         run: |
-          pip install ansible
-          cd infra/ansible
+          # Update inventory with server IP
+          echo "[todo_servers]" > inventory/hosts
+          echo "${{ steps.server_ip.outputs.ip }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_python_interpreter=/usr/bin/python3" >> inventory/hosts
+          
+          # Run Ansible playbook
           ansible-playbook -i inventory/hosts playbook.yml \
             -e "domain_name=${{ secrets.DOMAIN_NAME }}" \
-            -e "acme_email=${{ secrets.ACME_EMAIL }}"
+            -e "acme_email=${{ secrets.ACME_EMAIL }}" \
+            -v
 
-      - name: Send Deployment Notification
+      - name: Verify Deployment
+        run: |
+          echo "Waiting for services to be ready..."
+          sleep 30
+          
+          # Test HTTPS endpoint
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://${{ secrets.DOMAIN_NAME }} --insecure)
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "Application is accessible"
+          else
+            echo "Application returned HTTP $HTTP_CODE"
+          fi
+
+      - name: Send Deployment Success Email
+        if: success()
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -67,13 +102,76 @@ jobs:
           password: ${{ secrets.EMAIL_PASSWORD }}
           subject: 'Application Deployed Successfully'
           to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: TIWA DevOps Bot
-          body: |
-            Application has been successfully deployed!
-            
-            Repository: ${{ github.repository }}
-            Branch: ${{ github.ref_name }}
-            Commit: ${{ github.sha }}
-            Triggered by: ${{ github.actor }}
-            
-            Access your application at: https://${{ secrets.DOMAIN_NAME }}
+          from: DevOps Bot <${{ secrets.EMAIL_USERNAME }}>
+          html_body: |
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background: #4caf50; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
+                .content { background: #f5f5f5; padding: 20px; border-radius: 0 0 5px 5px; }
+                .success-box { background: #d4edda; padding: 15px; margin: 10px 0; border-left: 4px solid #28a745; }
+                .info-box { background: white; padding: 15px; margin: 10px 0; border-left: 4px solid #2196F3; }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <h2>Application Deployed Successfully</h2>
+                </div>
+                <div class="content">
+                  <div class="success-box">
+                    <h3>Deployment Complete</h3>
+                    <p>Your application has been successfully deployed!</p>
+                  </div>
+                  
+                  <div class="info-box">
+                    <h3>Details</h3>
+                    <p><strong>Repository:</strong> ${{ github.repository }}</p>
+                    <p><strong>Branch:</strong> ${{ github.ref_name }}</p>
+                    <p><strong>Commit:</strong> ${{ github.sha }}</p>
+                    <p><strong>Deployed by:</strong> ${{ github.actor }}</p>
+                    <p><strong>Application URL:</strong> <a href="https://${{ secrets.DOMAIN_NAME }}">https://${{ secrets.DOMAIN_NAME }}</a></p>
+                  </div>
+                </div>
+              </div>
+            </body>
+            </html>
+
+      - name: Send Deployment Failure Email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: 'Application Deployment Failed'
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: DevOps Bot <${{ secrets.EMAIL_USERNAME }}>
+          html_body: |
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background: #f44336; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
+                .error-box { background: #f8d7da; padding: 15px; margin: 10px 0; border-left: 4px solid #dc3545; }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <h2>Application Deployment Failed</h2>
+                </div>
+                <div class="error-box">
+                  <p><strong>Repository:</strong> ${{ github.repository }}</p>
+                  <p><strong>Branch:</strong> ${{ github.ref_name }}</p>
+                  <p><strong>View logs:</strong> <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">Click here</a></p>
+                </div>
+              </div>
+            </body>
+            </html>
