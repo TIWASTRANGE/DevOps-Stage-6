@@ -67,7 +67,7 @@ jobs:
           password: ${{ secrets.EMAIL_PASSWORD }}
           subject: 'Application Deployed Successfully'
           to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: DevOps Bot
+          from: TIWA DevOps Bot
           body: |
             Application has been successfully deployed!
             

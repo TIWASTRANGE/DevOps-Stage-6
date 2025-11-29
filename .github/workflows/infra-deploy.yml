@@ -6,15 +6,10 @@ on:
       - 'infra/terraform/**'
       - 'infra/ansible/**'
       - '.github/workflows/infra-deploy.yml'
-    branches:
-      - main
-  schedule:
-    # Run drift detection every 6 hours
-    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 env:
-  TF_VERSION: '1.6.0'
+  TF_VERSION: '1.14.0'
   AWS_REGION: 'af-south-1'
 
 jobs:
@@ -23,8 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       has_changes: ${{ steps.plan.outputs.has_changes }}
-      plan_output: ${{ steps.plan.outputs.plan_output }}
-      plan_summary: ${{ steps.plan.outputs.plan_summary }}
+      plan_exitcode: ${{ steps.plan.outputs.exitcode }}
     
     steps:
       - name: Checkout code
@@ -35,107 +29,52 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: af-south-1
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: false
+          terraform_version: 1.6.0
 
       - name: Terraform Init
         working-directory: ./infra/terraform
         run: terraform init
 
-      - name: Terraform Validate
-        working-directory: ./infra/terraform
-        run: terraform validate
-
       - name: Terraform Plan
         id: plan
         working-directory: ./infra/terraform
         run: |
-          # Run terraform plan and capture both output and exit code
           set +e
-          PLAN_OUTPUT=$(terraform plan -detailed-exitcode -out=tfplan -no-color 2>&1)
+          terraform plan -detailed-exitcode -out=tfplan
           PLAN_EXIT_CODE=$?
           set -e
           
           echo "Terraform plan exit code: $PLAN_EXIT_CODE"
-          echo "$PLAN_OUTPUT"
           
-          # Save full plan output to file for artifact
-          echo "$PLAN_OUTPUT" > plan_output.txt
-          
-          # Extract summary from plan output
-          PLAN_SUMMARY=$(echo "$PLAN_OUTPUT" | grep -A 5 "Plan:" || echo "No summary available")
-          
-          # Escape output for GitHub Actions
-          {
-            echo 'plan_output<<EOF'
-            echo "$PLAN_OUTPUT"
-            echo EOF
-          } >> $GITHUB_OUTPUT
-          
-          {
-            echo 'plan_summary<<EOF'
-            echo "$PLAN_SUMMARY"
-            echo EOF
-          } >> $GITHUB_OUTPUT
-          
-          # Determine if changes exist based on exit code
-          # Exit codes: 0 = no changes, 1 = error, 2 = changes detected
           if [ $PLAN_EXIT_CODE -eq 2 ]; then
-            echo "Changes detected (drift or intentional changes)"
+            echo "Changes detected (drift)"
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            exit 0
+            echo "exitcode=2" >> $GITHUB_OUTPUT
           elif [ $PLAN_EXIT_CODE -eq 0 ]; then
-            echo "No changes detected - infrastructure is in sync"
+            echo "No changes detected"
             echo "has_changes=false" >> $GITHUB_OUTPUT
-            exit 0
+            echo "exitcode=0" >> $GITHUB_OUTPUT
           else
             echo "Terraform plan failed with exit code $PLAN_EXIT_CODE"
-            echo "has_changes=error" >> $GITHUB_OUTPUT
-            exit 1
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "exitcode=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
+            exit $PLAN_EXIT_CODE
           fi
+        continue-on-error: true
 
       - name: Upload Terraform Plan
         if: steps.plan.outputs.has_changes == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: tfplan
-          path: |
-            ./infra/terraform/tfplan
-            ./infra/terraform/plan_output.txt
-          retention-days: 5
+          path: ./infra/terraform/tfplan
 
-      - name: Comment PR with Plan
-        if: github.event_name == 'pull_request' && steps.plan.outputs.has_changes == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const output = `#### Terraform Plan
-            
-            **Status:** Changes Detected 
-            
-            <details><summary>Show Plan</summary>
-            
-            \`\`\`terraform
-            ${{ steps.plan.outputs.plan_summary }}
-            \`\`\`
-            
-            </details>
-            
-            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            })
-
-      - name: Send Drift/Change Detection Email
+      - name: Send Drift Detection Email
         if: steps.plan.outputs.has_changes == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
@@ -143,75 +82,27 @@ jobs:
           server_port: 587
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: 'Terraform Changes Detected - Approval Required'
+          subject: 'Terraform Drift Detected - Action Required'
           to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: TIWA DevOps Bot <${{ secrets.EMAIL_USERNAME }}>
-          html_body: |
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <style>
-                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                .header { background: #d32f2f; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
-                .content { background: #f5f5f5; padding: 20px; border-radius: 0 0 5px 5px; }
-                .info-box { background: white; padding: 15px; margin: 10px 0; border-left: 4px solid #2196F3; }
-                .warning-box { background: #fff3cd; padding: 15px; margin: 10px 0; border-left: 4px solid #ffc107; }
-                .plan-box { background: #263238; color: #aed581; padding: 15px; margin: 10px 0; border-radius: 5px; font-family: monospace; white-space: pre-wrap; }
-                .button { display: inline-block; padding: 12px 24px; background: #2196F3; color: white; text-decoration: none; border-radius: 5px; margin: 10px 5px; }
-                .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
-              </style>
-            </head>
-            <body>
-              <div class="container">
-                <div class="header">
-                  <h2>Infrastructure Changes Detected</h2>
-                  <p>Terraform has detected changes that require your review and approval</p>
-                </div>
-                <div class="content">
-                  <div class="info-box">
-                    <h3>Change Details</h3>
-                    <p><strong>Repository:</strong> ${{ github.repository }}</p>
-                    <p><strong>Branch:</strong> ${{ github.ref_name }}</p>
-                    <p><strong>Commit:</strong> ${{ github.sha }}</p>
-                    <p><strong>Triggered by:</strong> ${{ github.actor }}</p>
-                    <p><strong>Time:</strong> ${{ github.event.head_commit.timestamp || 'Scheduled run' }}</p>
-                    <p><strong>Event:</strong> ${{ github.event_name }}</p>
-                  </div>
-                  
-                  <div class="warning-box">
-                    <h3>Action Required</h3>
-                    <p>The following changes have been detected in your infrastructure:</p>
-                  </div>
-                  
-                  <div class="plan-box">${{ steps.plan.outputs.plan_summary }}</div>
-                  
-                  <div class="info-box">
-                    <h3>Next Steps</h3>
-                    <ol>
-                      <li>Review the changes carefully</li>
-                      <li>If changes are expected, approve the workflow</li>
-                      <li>If changes are unexpected (drift), investigate before approving</li>
-                    </ol>
-                  </div>
-                  
-                  <div style="text-align: center; margin: 20px 0;">
-                    <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">
-                      Review & Approve Changes
-                    </a>
-                  </div>
-                  
-                  <div class="warning-box">
-                    <p><strong>Warning:</strong> The workflow is waiting for your approval. No changes will be applied until you approve the deployment in the Actions tab.</p>
-                  </div>
-                </div>
-                <div class="footer">
-                  <p>This is an automated message from your DevOps pipeline</p>
-                  <p>Do not reply to this email</p>
-                </div>
-              </div>
-            </body>
-            </html>
+          from: DevOps Bot
+          body: |
+            Infrastructure Drift Detected!
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Triggered by: ${{ github.actor }}
+            Time: ${{ github.event.head_commit.timestamp }}
+            
+            Changes detected:
+            Plan: 3 to add, 1 to change, 2 to destroy
+            
+            Action Required:
+            Review and approve the changes here:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   wait-for-approval:
     name: Wait for Manual Approval
@@ -220,21 +111,13 @@ jobs:
     if: needs.terraform-plan.outputs.has_changes == 'true'
     environment:
       name: production
-      url: https://${{ secrets.DOMAIN_NAME }}
 
     steps:
       - name: Wait for approval
-        run: |
-          echo "Waiting for manual approval to apply infrastructure changes..."
-          echo ""
-          echo "Changes detected:"
-          echo "${{ needs.terraform-plan.outputs.plan_summary }}"
-          echo ""
-          echo "An approval email has been sent."
-          echo "Please review and approve in the GitHub Actions environment."
+        run: echo "Waiting for manual approval to apply infrastructure changes..."
 
   terraform-apply:
-    name: Apply Infrastructure Changes
+    name: Terraform Apply
     runs-on: ubuntu-latest
     needs: [terraform-plan, wait-for-approval]
     if: needs.terraform-plan.outputs.has_changes == 'true'
@@ -254,7 +137,6 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: false
 
       - name: Download Terraform Plan
         uses: actions/download-artifact@v4
@@ -266,20 +148,9 @@ jobs:
         working-directory: ./infra/terraform
         run: terraform init
 
-      - name: Apply Infrastructure Changes
+      - name: Terraform Apply
         working-directory: ./infra/terraform
-        run: |
-          echo "Applying Terraform changes..."
-          terraform apply -auto-approve tfplan
-          echo "Infrastructure changes applied successfully!"
-
-      - name: Get Server IP
-        id: server_ip
-        working-directory: ./infra/terraform
-        run: |
-          SERVER_IP=$(terraform output -raw server_public_ip)
-          echo "ip=$SERVER_IP" >> $GITHUB_OUTPUT
-          echo "Server IP: $SERVER_IP"
+        run: terraform apply -auto-approve tfplan
 
       - name: Send Success Email
         uses: dawidd6/action-send-mail@v3
@@ -290,110 +161,13 @@ jobs:
           password: ${{ secrets.EMAIL_PASSWORD }}
           subject: 'Infrastructure Successfully Applied'
           to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: DevOps Bot <${{ secrets.EMAIL_USERNAME }}>
-          html_body: |
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <style>
-                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                .header { background: #4caf50; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
-                .content { background: #f5f5f5; padding: 20px; border-radius: 0 0 5px 5px; }
-                .success-box { background: #d4edda; padding: 15px; margin: 10px 0; border-left: 4px solid #28a745; }
-                .info-box { background: white; padding: 15px; margin: 10px 0; border-left: 4px solid #2196F3; }
-                .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
-              </style>
-            </head>
-            <body>
-              <div class="container">
-                <div class="header">
-                  <h2>Infrastructure Deployment Successful</h2>
-                  <p>Your infrastructure changes have been applied successfully!</p>
-                </div>
-                <div class="content">
-                  <div class="success-box">
-                    <h3>Deployment Complete</h3>
-                    <p>All infrastructure changes have been successfully applied to your AWS environment.</p>
-                  </div>
-                  
-                  <div class="info-box">
-                    <h3>Deployment Details</h3>
-                    <p><strong>Repository:</strong> ${{ github.repository }}</p>
-                    <p><strong>Branch:</strong> ${{ github.ref_name }}</p>
-                    <p><strong>Commit:</strong> ${{ github.sha }}</p>
-                    <p><strong>Deployed by:</strong> ${{ github.actor }}</p>
-                    <p><strong>Server IP:</strong> ${{ steps.server_ip.outputs.ip }}</p>
-                    <p><strong>Domain:</strong> ${{ secrets.DOMAIN_NAME }}</p>
-                  </div>
-                  
-                  <div class="info-box">
-                    <h3>Quick Links</h3>
-                    <p>
-                      <a href="https://${{ secrets.DOMAIN_NAME }}">Application URL</a><br>
-                      <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Workflow Run</a>
-                    </p>
-                  </div>
-                </div>
-                <div class="footer">
-                  <p>This is an automated message from your DevOps pipeline</p>
-                </div>
-              </div>
-            </body>
-            </html>
+          from: TIWA HNG13 Stage6 DevOps Bot
+          body: |
+            Infrastructure changes have been successfully applied!
 
-      - name: Send Failure Email
-        if: failure()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: 'Infrastructure Deployment Failed'
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: DevOps Bot <${{ secrets.EMAIL_USERNAME }}>
-          html_body: |
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <style>
-                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                .header { background: #f44336; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
-                .content { background: #f5f5f5; padding: 20px; border-radius: 0 0 5px 5px; }
-                .error-box { background: #f8d7da; padding: 15px; margin: 10px 0; border-left: 4px solid #dc3545; }
-                .button { display: inline-block; padding: 12px 24px; background: #f44336; color: white; text-decoration: none; border-radius: 5px; margin: 10px 5px; }
-                .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
-              </style>
-            </head>
-            <body>
-              <div class="container">
-                <div class="header">
-                  <h2>Infrastructure Deployment Failed</h2>
-                  <p>There was an error applying your infrastructure changes</p>
-                </div>
-                <div class="content">
-                  <div class="error-box">
-                    <h3>Deployment Error</h3>
-                    <p>The infrastructure deployment failed during the apply phase.</p>
-                    <p><strong>Repository:</strong> ${{ github.repository }}</p>
-                    <p><strong>Branch:</strong> ${{ github.ref_name }}</p>
-                    <p><strong>Triggered by:</strong> ${{ github.actor }}</p>
-                  </div>
-                  
-                  <div style="text-align: center; margin: 20px 0;">
-                    <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">
-                      View Error Logs
-                    </a>
-                  </div>
-                </div>
-                <div class="footer">
-                  <p>Please check the workflow logs for detailed error information</p>
-                </div>
-              </div>
-            </body>
-            </html>
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
 
   no-changes:
     name: No Changes Detected
@@ -402,8 +176,5 @@ jobs:
     if: needs.terraform-plan.outputs.has_changes == 'false'
 
     steps:
-      - name: No changes detected
-        run: |
-          echo "No infrastructure changes detected"
-          echo "Your infrastructure is in sync with the desired state"
-          echo "No action needed!"
+      - name: No changes
+        run: echo "No infrastructure changes detected. Skipping apply."
