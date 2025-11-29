@@ -35,12 +35,16 @@ services:
       dockerfile: Dockerfile
     container_name: frontend
     restart: unless-stopped
+    environment:
+      - PORT=8080
+      - AUTH_API_ADDRESS=http://auth-api:8081
+      - TODOS_API_ADDRESS=http://todos-api:8082
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
-      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+      - "traefik.http.services.frontend.loadbalancer.server.port=8080"
     networks:
       - app-network
     depends_on:
@@ -55,15 +59,18 @@ services:
     container_name: auth-api
     restart: unless-stopped
     environment:
-      - PORT=8081
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - AUTH_API_PORT=8081
+      - JWT_SECRET=myfancysecret
+      - USERS_API_ADDRESS=http://users-api:8083
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.auth-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/auth`)"
       - "traefik.http.routers.auth-api.entrypoints=websecure"
       - "traefik.http.routers.auth-api.tls.certresolver=letsencrypt"
-      - "traefik.http.services.auth-api.loadbalancer.server.port=8080"
+      - "traefik.http.services.auth-api.loadbalancer.server.port=8081"
+      # Strip /api/auth prefix before forwarding
+      - "traefik.http.middlewares.auth-strip.stripprefix.prefixes=/api/auth"
+      - "traefik.http.routers.auth-api.middlewares=auth-strip"
     networks:
       - app-network
     depends_on:
@@ -77,14 +84,19 @@ services:
     restart: unless-stopped
     environment:
       - PORT=8082
+      - JWT_SECRET=myfancysecret
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - REDIS_CHANNEL=log_channel
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.todos-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/todos`)"
       - "traefik.http.routers.todos-api.entrypoints=websecure"
       - "traefik.http.routers.todos-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.todos-api.loadbalancer.server.port=8082"
+      # Strip /api/todos prefix
+      - "traefik.http.middlewares.todos-strip.stripprefix.prefixes=/api/todos"
+      - "traefik.http.routers.todos-api.middlewares=todos-strip"
     networks:
       - app-network
     depends_on:
@@ -98,15 +110,16 @@ services:
     restart: unless-stopped
     environment:
       - SERVER_PORT=8083
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - JAVA_OPTS=--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED
+      - JWT_SECRET=myfancysecret
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.users-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/users`)"
       - "traefik.http.routers.users-api.entrypoints=websecure"
       - "traefik.http.routers.users-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.users-api.loadbalancer.server.port=8083"
+      # Strip /api/users prefix
+      - "traefik.http.middlewares.users-strip.stripprefix.prefixes=/api/users"
+      - "traefik.http.routers.users-api.middlewares=users-strip"
     networks:
       - app-network
     depends_on:
@@ -130,7 +143,7 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - REDIS_CHANNEL=logs
+      - REDIS_CHANNEL=log_channel
     networks:
       - app-network
     depends_on:
