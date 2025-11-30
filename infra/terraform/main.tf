@@ -159,11 +159,23 @@ resource "null_resource" "run_ansible" {
     command = <<-EOT
       echo "Running Ansible playbook..."
       
+      # Create .ssh directory if it doesn't exist
+      mkdir -p $HOME/.ssh
+      chmod 700 $HOME/.ssh
+      
+      # Check if SSH key exists, if not, skip Ansible
+      if [ ! -f "$HOME/.ssh/id_rsa" ]; then
+        echo "SSH key not found at $HOME/.ssh/id_rsa"
+        exit 0
+      fi
+      
+      echo "SSH key found, proceeding with Ansible..."
+      
       # Wait for instance to be ready
       sleep 30
       
       # Add server to known hosts
-      ssh-keyscan -H ${aws_instance.micro_todo_app_server.public_ip} >> ~/.ssh/known_hosts 2>/dev/null || true
+      ssh-keyscan -H ${aws_instance.micro_todo_app_server.public_ip} >> $HOME/.ssh/known_hosts 2>/dev/null || true
       
       # Change to ansible directory
       cd ${path.module}/../ansible
@@ -171,17 +183,16 @@ resource "null_resource" "run_ansible" {
       # Check if ansible is installed
       if ! command -v ansible-playbook &> /dev/null; then
         echo "Installing Ansible..."
-        pip install ansible
+        pip install --user ansible
       fi
       
-      # Run Ansible with explicit key path 
+      # Run Ansible with explicit key path
       ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \
         -i inventory/hosts \
         playbook.yml \
         --private-key=$HOME/.ssh/id_rsa \
         -e "domain_name=${var.domain_name}" \
         -e "acme_email=${var.acme_email}" \
-        -e "ansible_ssh_private_key_file=$HOME/.ssh/id_rsa" \
         -v
     EOT
   }
