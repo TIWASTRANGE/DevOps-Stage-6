@@ -149,20 +149,45 @@ resource "null_resource" "wait_for_instance" {
   ]
 }
 
-# Run Ansible Playbook
+# Run Ansible - only executed when instance changes
 resource "null_resource" "run_ansible" {
   triggers = {
     instance_id = aws_instance.micro_todo_app_server.id
-    always_run  = timestamp()
   }
 
   provisioner "local-exec" {
-  command = <<-EOT
-    ansible-playbook -i ${path.module}/../ansible/inventory/hosts ${path.module}/../ansible/playbook.yml
-  EOT
-}
+    command = <<-EOT
+      echo "Running Ansible playbook..."
+      
+      # Wait for instance to be ready
+      sleep 30
+      
+      # Add server to known hosts
+      ssh-keyscan -H ${aws_instance.micro_todo_app_server.public_ip} >> ~/.ssh/known_hosts 2>/dev/null || true
+      
+      # Change to ansible directory
+      cd ${path.module}/../ansible
+      
+      # Check if ansible is installed
+      if ! command -v ansible-playbook &> /dev/null; then
+        echo "Installing Ansible..."
+        pip install ansible
+      fi
+      
+      # Run Ansible with explicit key path 
+      ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \
+        -i inventory/hosts \
+        playbook.yml \
+        --private-key=$HOME/.ssh/id_rsa \
+        -e "domain_name=${var.domain_name}" \
+        -e "acme_email=${var.acme_email}" \
+        -e "ansible_ssh_private_key_file=$HOME/.ssh/id_rsa" \
+        -v
+    EOT
+  }
 
-depends_on = [
-  null_resource.wait_for_instance
-]
+  depends_on = [
+    local_file.ansible_inventory,
+    null_resource.wait_for_instance
+  ]
 }
