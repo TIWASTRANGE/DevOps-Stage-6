@@ -54,8 +54,14 @@ jobs:
 
       - name: Setup SSH
         run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
+          # Check if .ssh directory exists, create if it doesn't
+          if [ ! -d ~/.ssh ]; then
+            echo "Creating .ssh directory..."
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+          else
+            echo ".ssh directory already exists"
+          fi
           
           # Add private key
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
@@ -70,7 +76,7 @@ jobs:
         run: |
           echo "Waiting for SSH to be available on ${{ steps.server_ip.outputs.ip }}..."
           
-          MAX_ATTEMPTS=12
+          MAX_ATTEMPTS=5
           ATTEMPT=0
           
           while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
