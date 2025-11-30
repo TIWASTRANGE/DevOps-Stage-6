@@ -37,8 +37,8 @@ services:
     restart: unless-stopped
     environment:
       - PORT=80
-      - AUTH_API_ADDRESS=http://auth-api:8081
-      - TODOS_API_ADDRESS=http://todos-api:8082
+      - AUTH_API_ADDRESS=http:/${DOMAIN}/auth-api:8081
+      - TODOS_API_ADDRESS=http:/${DOMAIN}/todos-api:8082
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
@@ -86,7 +86,7 @@ services:
     restart: unless-stopped
     environment:
       - PORT=8082
-      - JWT_SECRET=myfancysecret
+      - JWT_SECRET=foo
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_CHANNEL=log_channel
@@ -112,7 +112,7 @@ services:
     restart: unless-stopped
     environment:
       - SERVER_PORT=8083
-      - JWT_SECRET=myfancysecret
+      - JWT_SECRET=foo
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     labels:
