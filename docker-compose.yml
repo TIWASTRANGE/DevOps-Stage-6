@@ -113,8 +113,6 @@ services:
     environment:
       - SERVER_PORT=8083
       - JWT_SECRET=foo
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.users-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/users`)"
