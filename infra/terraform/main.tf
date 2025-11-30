@@ -163,7 +163,7 @@ resource "null_resource" "run_ansible" {
       mkdir -p $HOME/.ssh
       chmod 700 $HOME/.ssh
       
-      # Check if SSH key exists, if not, skip Ansible
+      # Check if SSH key exists
       if [ ! -f "$HOME/.ssh/id_rsa" ]; then
         echo "SSH key not found at $HOME/.ssh/id_rsa"
         exit 0
@@ -196,6 +196,8 @@ resource "null_resource" "run_ansible" {
         -v
     EOT
   }
+
+
 
   depends_on = [
     local_file.ansible_inventory,
