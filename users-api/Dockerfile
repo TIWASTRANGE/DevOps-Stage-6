@@ -15,6 +15,6 @@ WORKDIR /app
 
 COPY --from=builder /app/target/*.jar app.jar
 
-EXPOSE 8081
+EXPOSE 8083
 
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

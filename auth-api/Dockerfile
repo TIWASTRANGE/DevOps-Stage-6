@@ -16,6 +16,6 @@ WORKDIR /root/
 
 COPY --from=builder /app/auth-api .
 
-EXPOSE 8080
+EXPOSE 8081
 
 CMD ["./auth-api"]
