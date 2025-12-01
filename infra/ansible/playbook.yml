@@ -7,7 +7,7 @@
   vars:
     app_repo: "https://github.com/TIWASTRANGE/DevOps-Stage-6.git"
     app_dir: "/opt/todo-app"
-    domain_name: "{{ lookup('env', 'DOMAIN') | default('tiwa-microdeploy.strangled.net', true) }}"
+    domain_name: "{{ lookup('env', 'DOMAIN') | default('tiwa-microdeploy.mooo.com', true) }}"
     acme_email: "{{ lookup('env', 'ACME_EMAIL') | default('ntiwa112@gmail.com.com', true) }}"
 
   roles:
