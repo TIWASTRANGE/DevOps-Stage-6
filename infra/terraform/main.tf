@@ -158,7 +158,7 @@ resource "null_resource" "run_ansible" {
   provisioner "local-exec" {
     command = <<-EOT
       echo "Running Ansible playbook..."
-      
+      #Test Drift
       # Create .ssh directory if it doesn't exist
       mkdir -p ~/.ssh
       chmod 700 ~/.ssh
