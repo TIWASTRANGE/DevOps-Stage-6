@@ -2,3 +2,6 @@
 infra/terraform/aws
 infra/terraform/.terraform
 infra\terraform\*.hcl
+
+*.pem
+infra/terraform/keys/id_rsa
