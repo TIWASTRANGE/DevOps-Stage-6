@@ -66,13 +66,17 @@ services:
       - USERS_API_ADDRESS=http://users-api:8083
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.auth-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/auth`)"
+      - "traefik.http.routers.auth-api.rule=Host(`${DOMAIN_NAME}`) && PathPrefix(`/api/auth`)"
       - "traefik.http.routers.auth-api.entrypoints=websecure"
-      - "traefik.http.routers.auth-api.tls.certresolver=letsencrypt"
-      - "traefik.http.services.auth-api.loadbalancer.server.port=8081"
-      # Strip /api/auth prefix before forwarding
-      - "traefik.http.middlewares.auth-strip.stripprefix.prefixes=/api/auth"
-      - "traefik.http.routers.auth-api.middlewares=auth-strip"
+      - "traefik.http.routers.auth-api.tls.certresolver=myresolver"
+      - "traefik.http.routers.auth-api.middlewares=auth-stripprefix"
+      - "traefik.http.middlewares.auth-stripprefix.stripprefix.prefixes=/api/auth"
+      # Direct /login, /logout, /signup routes
+      - "traefik.http.routers.auth-direct.rule=Host(`${DOMAIN_NAME}`) && (Path(`/login`) || Path(`/logout`) || Path(`/signup`))"
+      - "traefik.http.routers.auth-direct.entrypoints=websecure"
+      - "traefik.http.routers.auth-direct.tls.certresolver=myresolver"
+      # Service definition
+      - "traefik.http.services.auth.loadbalancer.server.port=${AUTH_API_PORT}"
     networks:
       - app-network
     depends_on:

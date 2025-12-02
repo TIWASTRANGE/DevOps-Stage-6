@@ -164,8 +164,8 @@ resource "null_resource" "run_ansible" {
       chmod 700 $HOME/.ssh
       
       # Check if SSH key exists
-      if [ ! -f "$HOME/.ssh/id_rsa" ]; then
-        echo "SSH key not found at $HOME/.ssh/id_rsa"
+      if [ ! -f "../terraform/keys/id_rsa" ]; then
+        echo "SSH key not found at ../terraform/keys/id_rsa"
         exit 0
       fi
       
