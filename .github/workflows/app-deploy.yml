@@ -14,6 +14,9 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  AWS_REGION: 'af-south-1'
+
 jobs:
   deploy:
     name: Deploy Application
@@ -28,9 +31,9 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: af-south-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
+      - name: Setup Terraform (to get server IP)
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: '1.6.0'
@@ -41,136 +44,53 @@ jobs:
         working-directory: ./infra/terraform
         run: |
           terraform init
-          SERVER_IP=$(terraform output -raw server_public_ip 2>/dev/null || echo "")
-          
-          if [ -z "$SERVER_IP" ]; then
-            echo "Could not get server IP from Terraform"
-            echo " Make sure infrastructure is deployed first"
-            exit 1
-          fi
-          
+          SERVER_IP=$(terraform output -raw server_public_ip)
           echo "ip=$SERVER_IP" >> $GITHUB_OUTPUT
           echo "Server IP: $SERVER_IP"
 
       - name: Setup SSH
         run: |
-          # Check if .ssh directory exists, create if it doesn't
-          if [ ! -d ~/.ssh ]; then
-            echo "Creating .ssh directory..."
-            mkdir -p ~/.ssh
-            chmod 700 ~/.ssh
-          else
-            echo ".ssh directory already exists"
-          fi
-          
-          # Add private key
+          mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ steps.server_ip.outputs.ip }} >> ~/.ssh/known_hosts
           
-          # Add server to known hosts
-          ssh-keyscan -H ${{ steps.server_ip.outputs.ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
-          
-          echo "SSH configured"
-
-      - name: Wait for SSH to be available
-        run: |
-          echo "Waiting for SSH to be available on ${{ steps.server_ip.outputs.ip }}..."
-          
-          MAX_ATTEMPTS=5
-          ATTEMPT=0
-          
-          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-            ATTEMPT=$((ATTEMPT + 1))
-            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS..."
-            
-            if ssh -o ConnectTimeout=10 \
-                   -o StrictHostKeyChecking=no \
-                   -o BatchMode=yes \
-                   -i ~/.ssh/id_rsa \
-                   ubuntu@${{ steps.server_ip.outputs.ip }} \
-                   "echo 'SSH ready'" 2>/dev/null; then
-              echo "SSH connection successful!"
-              exit 0
-            fi
-            
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              sleep 10
-            fi
-          done
-          
-          echo "SSH connection failed after $MAX_ATTEMPTS attempts (120 seconds)"
-          echo ""
-          echo "Possible issues:"
-          echo "1. Security group doesn't allow SSH from GitHub Actions"
-          echo "2. Instance is still starting up"
-          echo "3. SSH key mismatch"
-          echo "4. Instance is not running"
-          exit 1
+          # Test SSH connection
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ steps.server_ip.outputs.ip }} "echo 'SSH connection successful'"
 
       - name: Install Ansible
         run: |
-          pip install ansible
-          ansible --version
+          sudo apt-get update
+          sudo apt-get install -y ansible
 
       - name: Deploy with Ansible
+        working-directory: ./infra/ansible
+        env:
+          DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
         run: |
-          cd infra/ansible
+          # Update inventory with server IP
+          echo "[todo_servers]" > inventory/hosts
+          echo "${{ steps.server_ip.outputs.ip }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_python_interpreter=/usr/bin/python3" >> inventory/hosts
           
-          # Verify inventory exists
-          if [ ! -f inventory/hosts ]; then
-            echo "Inventory file not found!"
-            echo "Creating inventory manually..."
-            mkdir -p inventory
-            cat > inventory/hosts << EOF
-          [webservers]
-          app_server ansible_host=${{ steps.server_ip.outputs.ip }} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_python_interpreter=/usr/bin/python3
-
-          [webservers:vars]
-          ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
-          EOF
-          fi
-          
-          echo "Starting application deployment..."
+          # Run Ansible playbook
           ansible-playbook -i inventory/hosts playbook.yml \
             -e "domain_name=${{ secrets.DOMAIN_NAME }}" \
             -e "acme_email=${{ secrets.ACME_EMAIL }}" \
-            --private-key ~/.ssh/id_rsa \
             -v
 
-      - name: Wait for services to start
+      - name: Verify Deployment
         run: |
-          echo "Waiting 45 seconds for Docker services to start..."
-          sleep 45
-
-      - name: Verify deployment
-        continue-on-error: true
-        run: |
-          echo "Verifying deployment..."
+          echo "Waiting for services to be ready..."
+          sleep 30
           
-          SERVER_IP="${{ steps.server_ip.outputs.ip }}"
-          DOMAIN="${{ secrets.DOMAIN_NAME }}"
-          
-          # Check if server responds on HTTP
-          echo "Testing HTTP..."
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 10 http://$SERVER_IP || echo "000")
-          echo "HTTP response code: $HTTP_CODE"
-          
-          # Check if domain resolves
-          echo "Testing domain resolution..."
-          if host $DOMAIN > /dev/null 2>&1; then
-            echo "Domain resolves"
-            
-            # Test HTTPS
-            echo "Testing HTTPS..."
-            HTTPS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 10 https://$DOMAIN -k || echo "000")
-            echo "HTTPS response code: $HTTPS_CODE"
+          # Test HTTPS endpoint
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://${{ secrets.DOMAIN_NAME }} --insecure)
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "Application is accessible"
           else
-            echo "Domain doesn't resolve yet (DNS propagation)"
+            echo "Application returned HTTP $HTTP_CODE"
           fi
-          
-          # Check via SSH
-          echo "Checking Docker containers status..."
-          ssh -i ~/.ssh/id_rsa ubuntu@$SERVER_IP "docker ps --format 'table {{.Names}}\t{{.Status}}'"
 
       - name: Send Deployment Success Email
         if: success()
@@ -194,50 +114,27 @@ jobs:
                 .content { background: #f5f5f5; padding: 20px; border-radius: 0 0 5px 5px; }
                 .success-box { background: #d4edda; padding: 15px; margin: 10px 0; border-left: 4px solid #28a745; }
                 .info-box { background: white; padding: 15px; margin: 10px 0; border-left: 4px solid #2196F3; }
-                .link-box { text-align: center; margin: 20px 0; }
-                .button { display: inline-block; padding: 12px 24px; background: #2196F3; color: white; text-decoration: none; border-radius: 5px; margin: 5px; }
-                .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
               </style>
             </head>
             <body>
               <div class="container">
                 <div class="header">
-                  <h2>Application Deployed Successfully!</h2>
-                  <p>Your microservices TODO application is now live</p>
+                  <h2>Application Deployed Successfully</h2>
                 </div>
                 <div class="content">
                   <div class="success-box">
                     <h3>Deployment Complete</h3>
-                    <p>All services have been successfully deployed and are running.</p>
+                    <p>Your application has been successfully deployed!</p>
                   </div>
                   
                   <div class="info-box">
-                    <h3>Deployment Details</h3>
+                    <h3>Details</h3>
                     <p><strong>Repository:</strong> ${{ github.repository }}</p>
                     <p><strong>Branch:</strong> ${{ github.ref_name }}</p>
                     <p><strong>Commit:</strong> ${{ github.sha }}</p>
                     <p><strong>Deployed by:</strong> ${{ github.actor }}</p>
-                    <p><strong>Server IP:</strong> ${{ steps.server_ip.outputs.ip }}</p>
-                    <p><strong>Domain:</strong> https://${{ secrets.DOMAIN_NAME }}</p>
+                    <p><strong>Application URL:</strong> <a href="https://${{ secrets.DOMAIN_NAME }}">https://${{ secrets.DOMAIN_NAME }}</a></p>
                   </div>
-                  
-                  <div class="info-box">
-                    <h3>Access Points</h3>
-                    <ul>
-                      <li><strong>Frontend:</strong> https://${{ secrets.DOMAIN_NAME }}</li>
-                      <li><strong>Auth API:</strong> https://${{ secrets.DOMAIN_NAME }}/api/auth</li>
-                      <li><strong>Todos API:</strong> https://${{ secrets.DOMAIN_NAME }}/api/todos</li>
-                      <li><strong>Users API:</strong> https://${{ secrets.DOMAIN_NAME }}/api/users</li>
-                    </ul>
-                  </div>
-                  
-                  <div class="link-box">
-                    <a href="https://${{ secrets.DOMAIN_NAME }}" class="button">Open Application</a>
-                    <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">View Deployment Logs</a>
-                  </div>
-                </div>
-                <div class="footer">
-                  <p>This is an automated message from your DevOps pipeline</p>
                 </div>
               </div>
             </body>
@@ -253,7 +150,7 @@ jobs:
           password: ${{ secrets.EMAIL_PASSWORD }}
           subject: 'Application Deployment Failed'
           to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: TIWA DevOps Bot <${{ secrets.EMAIL_USERNAME }}>
+          from: DevOps Bot <${{ secrets.EMAIL_USERNAME }}>
           html_body: |
             <!DOCTYPE html>
             <html>
@@ -262,46 +159,18 @@ jobs:
                 body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
                 .container { max-width: 600px; margin: 0 auto; padding: 20px; }
                 .header { background: #f44336; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
-                .content { background: #f5f5f5; padding: 20px; border-radius: 0 0 5px 5px; }
                 .error-box { background: #f8d7da; padding: 15px; margin: 10px 0; border-left: 4px solid #dc3545; }
-                .button { display: inline-block; padding: 12px 24px; background: #f44336; color: white; text-decoration: none; border-radius: 5px; margin: 10px 0; }
-                .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
               </style>
             </head>
             <body>
               <div class="container">
                 <div class="header">
                   <h2>Application Deployment Failed</h2>
-                  <p>There was an error during the deployment process</p>
                 </div>
-                <div class="content">
-                  <div class="error-box">
-                    <h3>Deployment Error</h3>
-                    <p>The application deployment failed. Common causes:</p>
-                    <ul>
-                      <li>SSH connection timeout (check security group)</li>
-                      <li>Ansible playbook errors</li>
-                      <li>Docker container failures</li>
-                      <li>Missing environment variables</li>
-                    </ul>
-                  </div>
-                  
-                  <div class="error-box">
-                    <h3>Failure Details</h3>
-                    <p><strong>Repository:</strong> ${{ github.repository }}</p>
-                    <p><strong>Branch:</strong> ${{ github.ref_name }}</p>
-                    <p><strong>Commit:</strong> ${{ github.sha }}</p>
-                    <p><strong>Triggered by:</strong> ${{ github.actor }}</p>
-                  </div>
-                  
-                  <div style="text-align: center; margin: 20px 0;">
-                    <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">
-                      View Error Logs
-                    </a>
-                  </div>
-                </div>
-                <div class="footer">
-                  <p>This is an automated message from your DevOps pipeline</p>
+                <div class="error-box">
+                  <p><strong>Repository:</strong> ${{ github.repository }}</p>
+                  <p><strong>Branch:</strong> ${{ github.ref_name }}</p>
+                  <p><strong>View logs:</strong> <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">Click here</a></p>
                 </div>
               </div>
             </body>
