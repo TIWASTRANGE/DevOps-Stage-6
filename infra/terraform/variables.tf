@@ -31,7 +31,7 @@ variable "ssh_public_key_path" {
 variable "ssh_private_key_path" {
   description = "Path to SSH private key"
   type        = string
-  default     = "/home/tiwa/.ssh/id_rsa"
+  default     = "~/.ssh/id_rsa"
 }
 
 variable "ssh_user" {

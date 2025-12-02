@@ -160,12 +160,12 @@ resource "null_resource" "run_ansible" {
       echo "Running Ansible playbook..."
       
       # Create .ssh directory if it doesn't exist
-      mkdir -p $HOME/.ssh
-      chmod 700 $HOME/.ssh
+      mkdir -p ~/.ssh
+      chmod 700 ~/.ssh
       
       # Check if SSH key exists
-      if [ ! -f "../terraform/keys/id_rsa" ]; then
-        echo "SSH key not found at ../terraform/keys/id_rsa"
+      if [ ! -f "~/.shh/id_rsa" ]; then
+        echo "SSH key not found at ~/.shh/id_rsa"
         exit 0
       fi
       
@@ -175,7 +175,7 @@ resource "null_resource" "run_ansible" {
       sleep 30
       
       # Add server to known hosts
-      ssh-keyscan -H ${aws_instance.micro_todo_app_server.public_ip} >> $HOME/.ssh/known_hosts 2>/dev/null || true
+      ssh-keyscan -H ${aws_instance.micro_todo_app_server.public_ip} >> ~/.ssh/known_hosts 2>/dev/null || true
       
       # Change to ansible directory
       cd ${path.module}/../ansible
@@ -190,7 +190,7 @@ resource "null_resource" "run_ansible" {
       ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \
         -i inventory/hosts \
         playbook.yml \
-        --private-key=$HOME/.ssh/id_rsa \
+        --private-key=~/.ssh/id_rsa \
         -e "domain_name=${var.domain_name}" \
         -e "acme_email=${var.acme_email}" \
         -v
