@@ -70,11 +70,6 @@ services:
       - "traefik.http.routers.auth-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/auth`)"
       - "traefik.http.routers.auth-api.entrypoints=websecure"
       - "traefik.http.routers.auth-api.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.auth-api.middlewares=auth-stripprefix"
-      - "traefik.http.middlewares.auth-stripprefix.stripprefix.prefixes=/api/auth"
-      # Direct /login, /logout, /signup routes
-      - "traefik.http.routers.auth-direct.rule=Host(`${DOMAIN}`) && (Path(`/login`) || Path(`/logout`) || Path(`/signup`))"
-      - "traefik.http.routers.auth-direct.entrypoints=websecure"
       # Service definition
       - "traefik.http.services.auth.loadbalancer.server.port=${AUTH_API_PORT}"
     networks:
@@ -100,9 +95,6 @@ services:
       - "traefik.http.routers.todos-api.entrypoints=websecure"
       - "traefik.http.routers.todos-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.todos-api.loadbalancer.server.port=8082"
-      # Strip /api/todos prefix
-      - "traefik.http.middlewares.todos-strip.stripprefix.prefixes=/api/todos"
-      - "traefik.http.routers.todos-api.middlewares=todos-strip"
     networks:
       - app-network
     depends_on:
@@ -123,9 +115,6 @@ services:
       - "traefik.http.routers.users-api.entrypoints=websecure"
       - "traefik.http.routers.users-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.users-api.loadbalancer.server.port=8083"
-      # Strip /api/users prefix
-      - "traefik.http.middlewares.users-strip.stripprefix.prefixes=/api/users"
-      - "traefik.http.routers.users-api.middlewares=users-strip"
     networks:
       - app-network
     depends_on:
