@@ -11,7 +11,7 @@ services:
       - "--api.insecure=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.address=:8080"
       - "--entrypoints.websecure.address=:443"
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
@@ -36,16 +36,16 @@ services:
     container_name: frontend
     restart: unless-stopped
     environment:
-    - PORT=80
+    - PORT=8080
     - AUTH_API_ADDRESS=http://auth-api:8081
     - TODOS_API_ADDRESS=http://todos-api:8082
     - USERS_API_ADDRESS=http://users-api:8083
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`tiwa-microdeploy.mooo.com`)"
+      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
-      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+      - "traefik.http.services.frontend.loadbalancer.server.port=8080"
     networks:
       - app-network
     depends_on:
@@ -67,13 +67,13 @@ services:
       - USERS_API_ADDRESS=http://users-api:8083
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.auth-api.rule=Host(`tiwa-microdeploy.mooo.com`) && PathPrefix(`/api/auth`)"
+      - "traefik.http.routers.auth-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/auth`)"
       - "traefik.http.routers.auth-api.entrypoints=websecure"
       - "traefik.http.routers.auth-api.tls.certresolver=letsencrypt"
       - "traefik.http.routers.auth-api.middlewares=auth-stripprefix"
       - "traefik.http.middlewares.auth-stripprefix.stripprefix.prefixes=/api/auth"
       # Direct /login, /logout, /signup routes
-      - "traefik.http.routers.auth-direct.rule=Host(`tiwa-microdeploy.mooo.com`) && (Path(`/login`) || Path(`/logout`) || Path(`/signup`))"
+      - "traefik.http.routers.auth-direct.rule=Host(`${DOMAIN}`) && (Path(`/login`) || Path(`/logout`) || Path(`/signup`))"
       - "traefik.http.routers.auth-direct.entrypoints=websecure"
       # Service definition
       - "traefik.http.services.auth.loadbalancer.server.port=${AUTH_API_PORT}"
@@ -96,7 +96,7 @@ services:
       - REDIS_CHANNEL=log_channel
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.todos-api.rule=Host(`tiwa-microdeploy.mooo.com`) && PathPrefix(`/api/todos`)"
+      - "traefik.http.routers.todos-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/todos`)"
       - "traefik.http.routers.todos-api.entrypoints=websecure"
       - "traefik.http.routers.todos-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.todos-api.loadbalancer.server.port=8082"
@@ -119,7 +119,7 @@ services:
       - JWT_SECRET=myfancysecret
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.users-api.rule=Host(`tiwa-microdeploy.mooo.com`) && PathPrefix(`/api/users`)"
+      - "traefik.http.routers.users-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/users`)"
       - "traefik.http.routers.users-api.entrypoints=websecure"
       - "traefik.http.routers.users-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.users-api.loadbalancer.server.port=8083"
