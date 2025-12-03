@@ -70,6 +70,9 @@ services:
       - "traefik.http.routers.auth-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/auth`)"
       - "traefik.http.routers.auth-api.entrypoints=websecure"
       - "traefik.http.routers.auth-api.tls.certresolver=letsencrypt"
+      # Direct /login, /logout, /signup routes
+      - "traefik.http.routers.auth-direct.rule=Host(`${DOMAIN}`) && (Path(`/login`) || Path(`/logout`) || Path(`/signup`))"
+      - "traefik.http.routers.auth-direct.entrypoints=websecure"
       # Service definition
       - "traefik.http.services.auth.loadbalancer.server.port=${AUTH_API_PORT}"
     networks:
