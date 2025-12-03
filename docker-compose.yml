@@ -36,9 +36,10 @@ services:
     container_name: frontend
     restart: unless-stopped
     environment:
-      - PORT=80
-      - AUTH_API_ADDRESS=http:/tiwa-microdeploy.mooo.com/auth-api:8081
-      - TODOS_API_ADDRESS=http:/tiwa-microdeploy.mooo.com/todos-api:8082
+    - PORT=80
+    - AUTH_API_ADDRESS=http://auth-api:8081
+    - TODOS_API_ADDRESS=http://todos-api:8082
+    - USERS_API_ADDRESS=http://users-api:8083
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=Host(`tiwa-microdeploy.mooo.com`)"
@@ -89,7 +90,7 @@ services:
     restart: unless-stopped
     environment:
       - PORT=8082
-      - JWT_SECRET=foo
+      - JWT_SECRET=myfancysecret
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_CHANNEL=log_channel
@@ -115,7 +116,7 @@ services:
     restart: unless-stopped
     environment:
       - SERVER_PORT=8083
-      - JWT_SECRET=foo
+      - JWT_SECRET=myfancysecret
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.users-api.rule=Host(`tiwa-microdeploy.mooo.com`) && PathPrefix(`/api/users`)"
@@ -139,7 +140,7 @@ services:
     networks:
       - app-network
 
-  log-processor:
+  log-message-processor:
     build:
       context: ./log-message-processor
       dockerfile: Dockerfile
