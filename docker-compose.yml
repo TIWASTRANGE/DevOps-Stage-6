@@ -40,6 +40,8 @@ services:
       - AUTH_API_ADDRESS=http://auth-api:8081
       - TODOS_API_ADDRESS=http://todos-api:8082
       - USERS_API_ADDRESS=http://users-api:8083
+      # Add Zipkin URL for frontend logger (using the internal Traefik route)
+      - ZIPKIN_URL=https://${DOMAIN}/zipkin 
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
@@ -72,11 +74,13 @@ services:
       - "traefik.http.routers.auth-api-prefix.entrypoints=websecure"
       - "traefik.http.routers.auth-api-prefix.tls.certresolver=letsencrypt"
       - "traefik.http.routers.auth-api-prefix.service=auth-api-service"
+
       # 2. Router for direct paths like /login, /logout, /signup
       - "traefik.http.routers.auth-api-direct.rule=Host(`${DOMAIN}`) && (Path(`/login`) || Path(`/logout`) || Path(`/signup`))"
       - "traefik.http.routers.auth-api-direct.entrypoints=websecure"
       - "traefik.http.routers.auth-api-direct.tls.certresolver=letsencrypt"
       - "traefik.http.routers.auth-api-direct.service=auth-api-service"
+
       # 3. Service definition (shared by both routers)
       - "traefik.http.services.auth-api-service.loadbalancer.server.port=8081"
     networks:
@@ -136,6 +140,23 @@ services:
       - app-network
     depends_on:
       - redis
+
+  # NEW SERVICE: Zipkin Collector to handle tracing POSTs
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: zipkin
+    restart: unless-stopped
+    environment:
+      - STORAGE_TYPE=mem
+    labels:
+      - "traefik.enable=true"
+      # Zipkin collector endpoint for span POSTs
+      - "traefik.http.routers.zipkin-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/zipkin`)" 
+      - "traefik.http.routers.zipkin-api.entrypoints=websecure"
+      - "traefik.http.routers.zipkin-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.zipkin-api.loadbalancer.server.port=9411" # Default Zipkin port
+    networks:
+      - app-network
 
   redis:
     image: redis:7-alpine
