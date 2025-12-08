@@ -67,18 +67,16 @@ services:
       - USERS_API_ADDRESS=http://users-api:8083
     labels:
       - "traefik.enable=true"
-      # 1. Route for /api/auth prefix (standard API calls)
+      # 1. Router for /api/auth prefix (standard API calls)
       - "traefik.http.routers.auth-api-prefix.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/auth`)"
       - "traefik.http.routers.auth-api-prefix.entrypoints=websecure"
       - "traefik.http.routers.auth-api-prefix.tls.certresolver=letsencrypt"
       - "traefik.http.routers.auth-api-prefix.service=auth-api-service"
-
-      # 2. Route for direct paths like /login, /logout, /signup
+      # 2. Router for direct paths like /login, /logout, /signup
       - "traefik.http.routers.auth-api-direct.rule=Host(`${DOMAIN}`) && (Path(`/login`) || Path(`/logout`) || Path(`/signup`))"
       - "traefik.http.routers.auth-api-direct.entrypoints=websecure"
       - "traefik.http.routers.auth-api-direct.tls.certresolver=letsencrypt"
       - "traefik.http.routers.auth-api-direct.service=auth-api-service"
-
       # 3. Service definition (shared by both routers)
       - "traefik.http.services.auth-api-service.loadbalancer.server.port=8081"
     networks:
@@ -100,10 +98,20 @@ services:
       - REDIS_CHANNEL=log_channel
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.todos-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/todos`)"
-      - "traefik.http.routers.todos-api.entrypoints=websecure"
-      - "traefik.http.routers.todos-api.tls.certresolver=letsencrypt"
-      - "traefik.http.services.todos-api.loadbalancer.server.port=8082"
+      # 1. Router for API calls with /api/todos prefix
+      - "traefik.http.routers.todos-api-prefix.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/todos`)"
+      - "traefik.http.routers.todos-api-prefix.entrypoints=websecure"
+      - "traefik.http.routers.todos-api-prefix.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.todos-api-prefix.service=todos-api-service"
+
+      # 2. NEW Router for direct /todos path (Used by frontend for POST/GET tasks)
+      - "traefik.http.routers.todos-api-direct.rule=Host(`${DOMAIN}`) && Path(`/todos`)"
+      - "traefik.http.routers.todos-api-direct.entrypoints=websecure"
+      - "traefik.http.routers.todos-api-direct.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.todos-api-direct.service=todos-api-service"
+
+      # 3. Service definition
+      - "traefik.http.services.todos-api-service.loadbalancer.server.port=8082"
     networks:
       - app-network
     depends_on:
