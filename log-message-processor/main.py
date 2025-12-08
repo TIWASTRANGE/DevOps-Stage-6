@@ -7,8 +7,6 @@ from py_zipkin.zipkin import zipkin_span, ZipkinAttrs, generate_random_64bit_str
 import time
 import random
 
-#log message
-
 def log_message(message):
     time_delay = random.randrange(0, 2000)
     time.sleep(time_delay / 1000)
@@ -23,8 +21,7 @@ if __name__ == '__main__':
         requests.post(
             zipkin_url,
             data=encoded_span,
-            headers={'Content-Type': 'application/json'}
-
+            headers={'Content-Type': 'application/x-thrift'},
         )
 
     pubsub = redis.Redis(host=redis_host, port=redis_port, db=0).pubsub()
@@ -59,7 +56,6 @@ if __name__ == '__main__':
         except Exception as e:
             print('did not send data to Zipkin: {}'.format(e))
             log_message(message)
-
 
 
 
