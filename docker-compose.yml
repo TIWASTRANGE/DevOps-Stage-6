@@ -36,10 +36,10 @@ services:
     container_name: frontend
     restart: unless-stopped
     environment:
-    - PORT=8080
-    - AUTH_API_ADDRESS=http://auth-api:8081
-    - TODOS_API_ADDRESS=http://todos-api:8082
-    - USERS_API_ADDRESS=http://users-api:8083
+      - PORT=8080
+      - AUTH_API_ADDRESS=http://auth-api:8081
+      - TODOS_API_ADDRESS=http://todos-api:8082
+      - USERS_API_ADDRESS=http://users-api:8083
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
@@ -67,14 +67,20 @@ services:
       - USERS_API_ADDRESS=http://users-api:8083
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.auth-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/auth`)"
-      - "traefik.http.routers.auth-api.entrypoints=websecure"
-      - "traefik.http.routers.auth-api.tls.certresolver=letsencrypt"
-      # Direct /login, /logout, /signup routes
-      - "traefik.http.routers.auth-direct.rule=Host(`${DOMAIN}`) && (Path(`/login`) || Path(`/logout`) || Path(`/signup`))"
-      - "traefik.http.routers.auth-direct.entrypoints=websecure"
-      # Service definition
-      - "traefik.http.services.auth.loadbalancer.server.port=${AUTH_API_PORT}"
+      # 1. Route for /api/auth prefix (standard API calls)
+      - "traefik.http.routers.auth-api-prefix.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/auth`)"
+      - "traefik.http.routers.auth-api-prefix.entrypoints=websecure"
+      - "traefik.http.routers.auth-api-prefix.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.auth-api-prefix.service=auth-api-service"
+
+      # 2. Route for direct paths like /login, /logout, /signup
+      - "traefik.http.routers.auth-api-direct.rule=Host(`${DOMAIN}`) && (Path(`/login`) || Path(`/logout`) || Path(`/signup`))"
+      - "traefik.http.routers.auth-api-direct.entrypoints=websecure"
+      - "traefik.http.routers.auth-api-direct.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.auth-api-direct.service=auth-api-service"
+
+      # 3. Service definition (shared by both routers)
+      - "traefik.http.services.auth-api-service.loadbalancer.server.port=8081"
     networks:
       - app-network
     depends_on:
